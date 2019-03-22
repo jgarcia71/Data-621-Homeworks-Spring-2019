@@ -1,0 +1,187 @@
+---
+title: 'Data 621 - Homework #2'
+author: "Joseph E. Garcia"
+date: "March 14, 2019"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+```{r}
+library(pROC)
+library(caret)
+library(ggplot2)
+```
+
+```{r}
+data<-read.csv("https://raw.githubusercontent.com/jgarcia71/Data-621-Homeworks-Spring-2019/master/classification-output-data.csv")
+head(data)
+```
+
+```{r}
+tab<-table(data$class,data$scored.class)
+colnames(tab)<-c("Real Negative","Real Positive")
+rownames(tab)<-c("Model Negative","Model Positive")
+  tab
+```
+
+```{r}
+Confus.Matrix <- function(data) {
+  tab <- table(data$class,data$scored.class)
+colnames(tab)<-c("Real Negative","Real Positive")
+rownames(tab)<-c("Model Negative","Model Positive")
+  
+  return(tab)
+}
+
+Confus.Matrix(data=data)
+```
+
+```{r}
+Sens<-function(data) {
+  tab <- table(data$class,data$scored.class)
+  tn<-tab[1,1]
+  tp<-tab[2,2]
+  fn<-tab[2,1]
+  fp<-tab[1,2]
+  
+  sens<-tn/(tn+fp)
+
+  return(sens)
+  
+}
+
+Spec<-function(data) {
+  tab <- table(data$class,data$scored.class)
+  tn<-tab[1,1]
+  tp<-tab[2,2]
+  fn<-tab[2,1]
+  fp<-tab[1,2]
+  
+  spec<-tp/(tp+fn)
+
+  return(spec)
+  
+}
+
+CER<-function(data) {
+  tab <- table(data$class,data$scored.class)
+  tn<-tab[1,1]
+  tp<-tab[2,2]
+  fn<-tab[2,1]
+  fp<-tab[1,2]
+  
+  cer<-(fp+fn)/(tp+tn+fn+fp)
+
+  return(cer)
+  
+}
+
+PREC<-function(data) {
+  tab <- table(data$class,data$scored.class)
+  tn<-tab[1,1]
+  tp<-tab[2,2]
+  fn<-tab[2,1]
+  fp<-tab[1,2]
+  
+  prec<-tp/(tp+fp)
+
+  return(prec)
+  
+}
+
+ACC<-function(data) {
+  tab <- table(data$class,data$scored.class)
+  tn<-tab[1,1]
+  tp<-tab[2,2]
+  fn<-tab[2,1]
+  fp<-tab[1,2]
+  
+  acc<-(tp+tn)/(tp+tn+fn+fp)
+
+  return(acc)
+  
+}
+
+F1<-function(data) {
+    tab <- table(data$class,data$scored.class)
+  tn<-tab[1,1]
+  tp<-tab[2,2]
+  fn<-tab[2,1]
+  fp<-tab[1,2]
+  
+  acc<-(tp+tn)/(tp+tn+fn+fp)
+  cer<-(fp+fn)/(tp+tn+fn+fp)
+  prec<-tp/(tp+fp)
+  spec<-tp/(tp+fn)
+  sens<-tn/(tn+fp)
+  f1<-2*prec*sens/(prec+sens)
+
+  return(f1)
+  
+}
+
+Metrics<-function(data) {
+  tab <- table(data$class,data$scored.class)
+  tn<-tab[1,1]
+  tp<-tab[2,2]
+  fn<-tab[2,1]
+  fp<-tab[1,2]
+  
+  acc<-(tp+tn)/(tp+tn+fn+fp)
+  cer<-(fp+fn)/(tp+tn+fn+fp)
+  prec<-tp/(tp+fp)
+  spec<-tp/(tp+fn)
+  sens<-tn/(tn+fp)
+  f1<-2*prec*sens/(prec+sens)
+  
+  results<-data.frame(list(acc,cer,prec,sens,spec,f1))
+  colnames(results) <- c("Accuracy","Classification Error Rate","Precision","Sensitivity","Specificity","F1 Score")
+  results<-data.frame(t(results))
+  colnames(results)<-"Result"
+  return(results)
+  
+}
+
+Metrics(data)
+```
+
+```{r}
+ROC_Scott<- function(data,t) {
+
+se<-0
+sp<-0
+a<-0
+for (i in 1:round(1/t))
+{
+  
+  se[i]<-sensitivity(reference=as.factor(data$class),data=as.factor(as.numeric(data$scored.probability > 0.01*i)))
+  sp[i]<-specificity(reference=as.factor(data$class),data=as.factor(as.numeric(data$scored.probability > 0.01*i)))
+  a[i]<-t/2*(sp[i+1]+se[i])
+  
+
+}
+## Area of rectangles
+b1<-se[-1]
+b2<-se[-round(1/t)]
+x1<-sp[-1]
+x2<-sp[-round(1/t)]
+
+auc<-sum(b1*(x2-x1))
+plot(y=se,x=1-sp,xlab="1-Specificity",ylab="Sensitivity",main = "Scott ROC",type="l")
+return(paste0("AUC=",round(auc,3)))
+}
+```
+
+```{r}
+Metrics(data)
+```
+
+```{r}
+ROC_Scott(data,t=0.01)
+```
+
+```{r}
+roc(data$class,data$scored.probability,plot=TRUE)
+```
+
