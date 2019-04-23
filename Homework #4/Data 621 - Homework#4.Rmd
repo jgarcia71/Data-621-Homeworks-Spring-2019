@@ -1,0 +1,322 @@
+---
+title: "Data 621 - Homework#4"
+author: "Joseph E. Garcia"
+date: "April 20, 2019"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(e1071)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(ggplot2)
+library(corrplot)
+library(FactoMineR)
+library(VIF)
+library(knitr)
+library(kableExtra)
+library(pROC)
+library(binr)
+library(Hmisc)
+```
+
+```{r}
+train = read.csv("https://raw.githubusercontent.com/jgarcia71/Data-621-Homeworks-Spring-2019/master/Homework%20%234/insurance_training_data.csv")
+dim(train)
+```
+
+```{r}
+#transform data
+currencyconv = function(input) {
+  out = sub("\\$", "", input)
+  out = as.numeric(sub(",", "", out))
+  return(out)
+}
+
+# Replace spaces with underscores
+underscore = function(input) {
+  out = sub(" ", "_", input)
+  return(out)
+}
+
+
+train = as.tbl(train) %>% 
+  mutate_at(c("INCOME","HOME_VAL","BLUEBOOK","OLDCLAIM"),
+            currencyconv) %>% 
+  mutate_at(c("EDUCATION","JOB","CAR_TYPE","URBANICITY"),
+            underscore) %>% 
+  mutate_at(c("EDUCATION","JOB","CAR_TYPE","URBANICITY"),
+            as.factor) %>% 
+  mutate(TARGET_FLAG = as.factor(TARGET_FLAG))
+
+#check data
+summary(train) 
+```
+
+```{r}
+sapply(train, function(x) sum(is.na(x)))
+```
+
+```{r}
+ntrain<-select_if(train, is.numeric)
+ntrain %>%
+  keep(is.numeric) %>%     # Keep only numeric columns
+  gather() %>%            # Convert to key-value pairs
+  ggplot(aes(value)) +   # Plot the values
+  facet_wrap(~ key, scales = "free") +   # In separate panels
+    geom_density()  
+```
+
+```{r}
+# use column mean for calculation
+
+train$AGE[is.na(train$AGE)] <- mean(train$AGE, na.rm=TRUE)
+train$YOJ[is.na(train$YOJ)] <- mean(train$YOJ, na.rm=TRUE)
+train$HOME_VAL[is.na(train$HOME_VAL)] <- mean(train$HOME_VAL, na.rm=TRUE)
+train$CAR_AGE[is.na(train$CAR_AGE)] <- mean(train$CAR_AGE, na.rm=TRUE)
+train$INCOME[is.na(train$INCOME)] <- mean(train$INCOME, na.rm=TRUE)
+#get complete cases
+train <- train[complete.cases(train),]
+train2<-train
+# # transform data using log for skewed HOMEKIDS, MVR_PTS, OLDCLAIM, TIF, KIDSDRIVE and CLM_FREQ 
+
+train$HOMEKIDS <- log(train$HOMEKIDS+1)
+train$MVR_PTS <- log(train$MVR_PTS+1)
+train$OLDCLAIM <- log(train$OLDCLAIM+1)
+train$TIF <- log(train$TIF+1)
+train$KIDSDRIV <- log(train$KIDSDRIV+1)
+train$CLM_FREQ <- log(train$CLM_FREQ+1)
+#remove rad per correlation in prior section
+train <- train[, !(colnames(train) %in% c("INDEX"))]
+#create variable
+trainnum <- dplyr::select_if(train, is.numeric)
+rcorr(as.matrix(trainnum))
+```
+
+```{r}
+corrplot(cor(trainnum), method="pie")
+cor.test(trainnum$HOMEKIDS,trainnum$AGE,method="pearson")
+train2<-train
+```
+
+```{r}
+logit <- glm(formula = TARGET_FLAG ~ . - TARGET_AMT, data=train, family = "binomial" (link="logit"))
+summary(logit)
+```
+
+```{r}
+exp(logit$coefficients)
+confint.default(logit)
+```
+
+```{r}
+logitscalar <- mean(dlogis(predict(logit, type = "link")))
+logitscalar * coef(logit)
+confint.default(logit)
+```
+
+```{r}
+predlogit <- predict(logit, type="response")
+train2$pred1 <- predict(logit, type="response")
+summary(predlogit)
+```
+
+
+```{r}
+table(true = train$TARGET_FLAG, pred = round(fitted(logit)))
+par(mfrow=c(2,2))
+plot(logit)
+```
+
+```{r}
+data.frame(train2$pred1) %>%
+    ggplot(aes(x = train2.pred1)) + 
+    geom_histogram(bins = 50, fill = 'red') +
+    labs(title = 'Histogram of Predictions') +
+    theme_bw()
+```
+
+```{r}
+plot.roc(train$TARGET_FLAG, train2$pred1)
+#extract variables that are significant and rerun model
+sigvars <- data.frame(summary(logit)$coef[summary(logit)$coef[,4] <= .05, 4])
+sigvars <- add_rownames(sigvars, "vars")
+```
+
+```{r}
+colist<-dplyr::pull(sigvars, vars)
+colist<-c("KIDSDRIV","INCOME","PARENT1","HOME_VAL","MSTATUS","EDUCATION","JOB","TRAVTIME","CAR_USE","BLUEBOOK","TIF","CAR_TYPE","CLM_FREQ","REVOKED","MVR_PTS","URBANICITY")
+idx <- match(colist, names(train))
+trainmod2 <- cbind(train[,idx], train2['TARGET_FLAG'])
+```
+
+```{r}
+#MODEL 2
+logit2 <- glm(TARGET_FLAG ~ ., data=trainmod2, family = "binomial" (link="logit"))
+summary(logit2)
+exp(logit2$coefficients)
+logit2scalar <- mean(dlogis(predict(logit2, type = "link")))
+logit2scalar * coef(logit2)
+predlogit2 <- predict(logit2, type="response")
+train2$pred2 <- predict(logit2, type="response")
+summary(predlogit2)
+table(true = train$TARGET_FLAG, pred = round(fitted(logit2)))
+par(mfrow=c(2,2))
+plot(logit2)
+```
+
+```{r}
+data.frame(train2$pred2) %>%
+    ggplot(aes(x = train2.pred2)) + 
+    geom_histogram(bins = 50, fill = 'yellow') +
+    labs(title = 'Histogram of Predictions') +
+    theme_bw()
+plot.roc(train$TARGET_FLAG, train2$pred2)
+```
+
+```{r}
+#MODEL 3
+#PC Model no racial bias
+logit3 <- glm(TARGET_FLAG ~ KIDSDRIV + INCOME + HOME_VAL + TRAVTIME, data=train, family = "binomial" (link="logit"))
+summary(logit3)
+exp(logit3$coefficients)
+predlogit3 <- predict(logit3, type="response")
+train2$pred3 <- predict(logit3, type="response")
+summary(predlogit3)
+table(true = train$TARGET_FLAG, pred = round(fitted(logit3)))
+par(mfrow=c(2,2))
+plot(logit3)
+```
+
+```{r}
+data.frame(train2$pred3) %>%
+    ggplot(aes(x = train2.pred3)) + 
+    geom_histogram(bins = 50, fill = 'blue') +
+    labs(title = 'Histogram of Predictions') +
+    theme_bw()
+```
+
+```{r}
+plot.roc(train$TARGET_FLAG, train2$pred3)
+logit3scalar <- mean(dlogis(predict(logit3, type = "link")))
+logit3scalar * coef(logit3)
+```
+
+```{r}
+round(logitscalar * coef(logit),2)
+round(logit2scalar * coef(logit2),2)
+round(logit3scalar * coef(logit3),2)
+```
+
+```{r}
+#MODEL 1
+model <- lm(TARGET_AMT ~ ., data=train)
+summary(model)
+par(mfrow=c(1,2))
+plot(model$residuals ~ model$fitted.values)
+plot(model$fitted.values,train$TARGET_AMT)
+par(mfrow=c(2,2))
+plot(model)
+#extract variables that are significant and rerun model
+sigvars <- data.frame(summary(model)$coef[summary(model)$coef[,4] <= .05, 4])
+sigvars <- add_rownames(sigvars, "vars")
+colist<-c("TARGET_FLAG","BLUEBOOK","REVOKED","MVR_PTS","CAR_AGE")
+idx <- match(colist, names(train))
+trainmod2 <- cbind(train[,idx], train['TARGET_AMT'])
+```
+
+```{r}
+#MODEL 2
+model2<-lm(TARGET_AMT ~ ., data=trainmod2)
+summary(model2)
+par(mfrow=c(2,2))
+plot(model2$residuals ~ model2$fitted.values)
+plot(model2$fitted.values,train$TARGET_AMT)
+par(mfrow=c(2,2))
+plot(model2)
+par(mfrow=c(1,2))
+plot(model2$residuals ~ model2$fitted.values, main="New Reduced Var Model")
+abline(h = 0)
+plot(model$residuals ~ model$fitted.values, main="Orignal Model All Vars")
+abline(h = 0)
+```
+
+```{r}
+#MODEL 3
+model3<-lm(TARGET_AMT ~ KIDSDRIV + INCOME + HOME_VAL + TRAVTIME, data=train)
+summary(model3)
+par(mfrow=c(1,2))
+plot(model3$residuals ~ model3$fitted.values)
+plot(model3$fitted.values,train$TARGET_AMT)
+par(mfrow=c(2,2))
+plot(model3)
+```
+
+```{r}
+eval = read.csv("https://raw.githubusercontent.com/jgarcia71/Data-621-Homeworks-Spring-2019/master/Homework%20%234/insurance-evaluation-data.csv")
+eval2<- eval
+dim(eval)
+```
+
+```{r}
+eval$TARGET_AMT <- 0
+eval$TARGET_FLAG <- 0
+eval = as.tbl(eval) %>% 
+  mutate_at(c("INCOME","HOME_VAL","BLUEBOOK","OLDCLAIM"),
+            currencyconv) %>% 
+  mutate_at(c("EDUCATION","JOB","CAR_TYPE","URBANICITY"),
+            underscore) %>% 
+  mutate_at(c("EDUCATION","JOB","CAR_TYPE","URBANICITY"),
+            as.factor) %>% 
+  mutate(TARGET_FLAG = as.factor(TARGET_FLAG))
+
+# impute data for missing values
+# use column mean for calculation
+
+eval$HOMEKIDS <- log(eval$HOMEKIDS+1)
+eval$MVR_PTS <- log(eval$MVR_PTS+1)
+eval$OLDCLAIM <- log(eval$OLDCLAIM+1)
+eval$TIF <- log(eval$TIF+1)
+eval$KIDSDRIV <- log(eval$KIDSDRIV+1)
+eval$CLM_FREQ <- log(eval$CLM_FREQ+1)
+
+# use column mean for calculation
+
+eval$AGE[is.na(eval$AGE)] <- mean(eval$AGE, na.rm=TRUE)
+eval$YOJ[is.na(eval$YOJ)] <- mean(eval$YOJ, na.rm=TRUE)
+eval$HOME_VAL[is.na(eval$HOME_VAL)] <- mean(eval$HOME_VAL, na.rm=TRUE)
+eval$CAR_AGE[is.na(eval$CAR_AGE)] <- mean(eval$CAR_AGE, na.rm=TRUE)
+
+eval$INCOME[is.na(eval$INCOME)] <- mean(eval$INCOME, na.rm=TRUE)
+
+#remove rad per correlation in prior section
+
+eval <- eval[, !(colnames(eval) %in% c("INDEX"))]
+TARGET_FLAG <- predict(logit, newdata = eval, type="response")
+y_pred_num <- ifelse(TARGET_FLAG > 0.5, 1, 0)
+y_pred <- factor(y_pred_num, levels=c(0, 1))
+summary(y_pred)
+```
+
+```{r}
+rbind(round(summary(predlogit),4), round(summary(TARGET_FLAG),4))
+```
+
+
+```{r}
+eval$TARGET_FLAG <- as.factor(eval$TARGET_FLAG)
+eval2 <- eval[, !(colnames(eval) %in% c("TARGET_FLAG"))]
+TARGET_AMT<- predict(model, newdata = eval, interval='confidence') 
+summary(TARGET_AMT)
+summary(model)
+```
+
+
+
